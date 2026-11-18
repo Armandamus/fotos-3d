@@ -57,7 +57,12 @@
   .bar button.on{background:rgba(255,255,255,.88);color:#15171a}
   .bar .ic{font-size:13px;line-height:1}
   body.box .bar{display:none}
-  @media (max-width:520px){.bar{right:8px;top:8px;gap:5px}.bar button{padding:6px 9px;font-size:11.5px}}
+  @media (max-width:520px){
+    h1{font-size:16px}header p{font-size:12.5px;margin-top:2px}
+    .bar{position:static;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;max-width:none;padding:8px;background:#0f1113}
+    .bar button{justify-content:center;flex-direction:column;gap:2px;padding:7px 4px;font-size:11px;line-height:1.15;border-radius:10px;text-align:center}
+    .hint{font-size:11px;bottom:auto;top:10px}.card{font-size:12px;max-width:170px}.card b{font-size:12.5px}
+  }
   .touchonly{display:none}
   body.touch .touchonly{display:block}
   .ed{display:none;flex-direction:column;gap:8px}
@@ -87,7 +92,7 @@
       <button id="bNight" aria-label="Día o noche"><span class="ic">☾</span><span class="lb">Noche</span></button>
       <button id="bFurn"><span class="ic">◻</span><span class="lb">Vacío</span></button>
       <button id="bWalk"><span class="ic">↗</span><span class="lb">Caminar</span></button>
-      <button id="bCam"><span class="ic">◉</span><span class="lb">Mové la cabeza</span></button>
+      <button id="bCam"><span class="ic">◉</span><span class="lb">Cabeza</span></button>
     </div>
     <div class="drop" id="drop">Soltá la foto acá</div>
   </div>
@@ -168,7 +173,7 @@ async function loadPreset(){
     const im=await loadImg(o.src);const t=mkTex();upload(t,im,true);const tn=mkTex();upload(tn,await loadImg(o.srcN),true);
     const c=document.createElement('canvas');c.width=im.width;c.height=im.height;const x=c.getContext('2d');x.drawImage(im,0,0);
     const a=x.getImageData(0,0,im.width,im.height).data;
-    objs.push({...o,tex:t,texN:tn,alpha:a,aw:im.width,ah:im.height,bx0:(o.x0+o.x1)/2,dx:0,dy:0});
+    objs.push({...o,base:(o.base!=null?o.base:o.y1),tex:t,texN:tn,alpha:a,aw:im.width,ah:im.height,bx0:(o.x0+o.x1)/2,dx:0,dy:0});
   }
   {const c=document.createElement('canvas');c.width=dp.width;c.height=dp.height;const x=c.getContext('2d');x.drawImage(dp,0,0);depthData={w:dp.width,h:dp.height,d:x.getImageData(0,0,dp.width,dp.height).data};}
   hotspots=JSON.parse(JSON.stringify(ASSETS.hotspots));renderHS();
@@ -365,9 +370,10 @@ let camStream=null,landmarker=null,camVid=null,lastVT=-1,c0=null;
 const camBtn=$('bCam');
 if(!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia))camBtn.style.display='none';
 if(!isTouch)camBtn.style.display='none';   // sólo en el celular
+function toast(t){const h=$('hint');h.textContent=t;h.style.opacity=1;clearTimeout(toast.t);toast.t=setTimeout(()=>h.style.opacity=0,3500);}
 function camLabel(t,on){camBtn.querySelector('.lb').textContent=t;camBtn.classList.toggle('on',!!on);}
 async function startCam(){
-  camLabel('Cargando…',true);
+  camLabel('Cargando…',true);toast('Mové o girá la cabeza');
   try{
     camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:320},height:{ideal:240}},audio:false});
     camVid=document.createElement('video');camVid.playsInline=true;camVid.muted=true;camVid.srcObject=camStream;await camVid.play();
@@ -377,20 +383,26 @@ async function startCam(){
       const fs=await FilesetResolver.forVisionTasks(V+'/wasm');
       landmarker=await FaceLandmarker.createFromOptions(fs,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',delegate:'GPU'},runningMode:'VIDEO',numFaces:1});
     }
-    headOn=true;c0=null;camLabel('Cabeza activa',true);trackLoop();
-  }catch(err){console.log(err);stopCam();camLabel('Cámara no disponible',false);setTimeout(()=>camLabel('Mové la cabeza',false),2500);}
+    headOn=true;c0=null;camLabel('Cabeza ✓',true);trackLoop();
+  }catch(err){console.log(err);stopCam();camLabel('Cámara no disponible',false);setTimeout(()=>camLabel('Cabeza',false),2500);}
 }
-function stopCam(){headOn=false;hx=hy=0;headZ=1;if(camStream)camStream.getTracks().forEach(t=>t.stop());camStream=null;camLabel('Mové la cabeza',false);}
+function stopCam(){headOn=false;hx=hy=0;headZ=1;if(camStream)camStream.getTracks().forEach(t=>t.stop());camStream=null;camLabel('Cabeza',false);}
 function trackLoop(){
   if(!headOn)return;
   if(camVid.readyState>=2&&camVid.currentTime!==lastVT){lastVT=camVid.currentTime;
     const r=landmarker.detectForVideo(camVid,performance.now());
     const f=r.faceLandmarks&&r.faceLandmarks[0];
-    if(f){const L=f[33],R_=f[263];             // comisuras externas de los ojos
-      const x=(L.x+R_.x)/2,y=(L.y+R_.y)/2,sep=Math.hypot(L.x-R_.x,L.y-R_.y);
-      if(!c0)c0={x,y,s:sep};
-      c0.x+=(x-c0.x)*.003;c0.y+=(y-c0.y)*.003;c0.s+=(sep-c0.s)*.003;   // el centro se reajusta despacio
-      const nx=clamp((x-c0.x)*7),ny=clamp(-(y-c0.y)*7);
+    if(f){
+      // geometría de la cara: no depende de cómo venga rotado el video del celular
+      const L=f[33],R_=f[263],N=f[1];
+      const mx=(L.x+R_.x)/2,my=(L.y+R_.y)/2,ex=R_.x-L.x,ey=R_.y-L.y,sep=Math.hypot(ex,ey)||1e-3;
+      const ux=ex/sep,uy=ey/sep,px=-uy,py=ux;                      // eje de los ojos y su perpendicular
+      const yaw=((N.x-mx)*ux+(N.y-my)*uy)/sep;                     // girar la cabeza a los costados
+      const pitch=((N.x-mx)*px+(N.y-my)*py)/sep;                   // inclinar arriba/abajo
+      if(!c0)c0={mx,my,yaw,pitch,s:sep};
+      const k=.004;c0.mx+=(mx-c0.mx)*k;c0.my+=(my-c0.my)*k;c0.yaw+=(yaw-c0.yaw)*k;c0.pitch+=(pitch-c0.pitch)*k;c0.s+=(sep-c0.s)*k;
+      const dX=(mx-c0.mx)*ux+(my-c0.my)*uy, dY=(mx-c0.mx)*px+(my-c0.my)*py;   // desplazamiento de la cabeza
+      const nx=clamp(dX*7+(yaw-c0.yaw)*3.2), ny=clamp(-(dY*7+(pitch-c0.pitch)*3.2));
       hx+=(nx-hx)*.35;hy+=(ny-hy)*.35;
       headZ+=((1+Math.max(-.04,Math.min(.06,(sep/c0.s-1)*.5)))-headZ)*.2;   // acercarse = acercar la vista
     }}
